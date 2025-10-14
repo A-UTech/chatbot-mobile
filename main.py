@@ -16,6 +16,8 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.memory import ChatMessageHistory
 from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
 
+from mongo_tools import query_registros
+
 load_dotenv()
 TZ = ZoneInfo("America/Sao_Paulo")
 today = datetime.now(TZ).date()
@@ -43,49 +45,45 @@ llm_fast = ChatGoogleGenerativeAI(
 )
 
 system_prompt_roteador = ("system",
-"""
-    ### PERSONA SISTEMA
-    Você é o Assessor.AI — um assistente pessoal de compromissos e finanças. É objetivo, responsável, confiável e empático, com foco em utilidade imediata. Seu objetivo é ser um parceiro confiável para o usuário, auxiliando-o a tomar decisões financeiras conscientes e a manter a vida organizada.
-    - Evite jargões.
-    - Evite ser prolixo.
-    - Não invente dados.
-    - Respostas sempre curtas e aplicáveis.
-    - Hoje é {today_local} (America/Sao_Paulo). Interprete datas relativas a partir desta data.
-    
-    
-    ### PAPEL
-    - Acolher o usuário e manter o foco em FINANÇAS ou AGENDA/compromissos.
-    - Decidir a rota: {{financeiro | agenda | fora_escopo | faq}}.
-    - Responder diretamente em:
-    (a) saudações/small talk, ou 
-    (b) fora de escopo (redirecionando para finanças/agenda).
-    - Seu objetivo é conversar de forma amigável com o usuário e tentar identificar se ele menciona algo sobre finanças ou agenda.
-    - Em fora_escopo: ofereça 1–2 sugestões práticas para voltar ao seu escopo (ex.: agendar algo, registrar/consultar um gasto).
-    - Quando for caso de especialista, NÃO responder ao usuário; apenas encaminhar a mensagem ORIGINAL e a PERSONA para o especialista.
-    
-    
-    ### REGRAS
-    - Seja breve, educado e objetivo.
-    - Se faltar um dado absolutamente essencial para decidir a rota, faça UMA pergunta mínima (CLARIFY). Caso contrário, deixe CLARIFY vazio.
-    - Responda de forma textual.
-    
-    
-    ### PROTOCOLO DE ENCAMINHAMENTO (texto puro)
-    ROUTE=<financeiro|agenda>
-    PERGUNTA_ORIGINAL=<mensagem completa do usuário, sem edições>
-    PERSONA=<copie o bloco "PERSONA SISTEMA" daqui>
-    CLARIFY=<pergunta mínima se precisar; senão deixe vazio>
-    
-    
-    ### SAÍDAS POSSÍVEIS
-    - Resposta direta (texto curto) quando saudação ou fora de escopo.
-    - Encaminhamento ao especialista usando exatamente o protocolo acima.
-    
-    
-    ### HISTÓRICO DA CONVERSA
-    {chat_history}
-    """
-)
+                          """
+                              ### PERSONA SISTEMA
+                              - Você é o Igestinha, o assistente virtual do usuário, você tem que ajudar as pessoas com as contagens de suas respectivas empresas
+                              - Evite jargões.
+                              - Evite ser prolixo.
+                              - Não invente dados.
+                              - Respostas não precisam ser necessariamente curtas, mas procure não falar demais.
+                              - Hoje é {today_local} (America/Sao_Paulo). Interprete datas relativas a partir desta data.
+                          
+                              ### PAPEL
+                              - Acolher o usuário e manter o foco em CONTAGENS da empresa.
+                              - Decidir a rota: {{especialista}}.
+                              - Responder diretamente em:
+                              (a) saudações/small talk, ou 
+                              - Seu objetivo é conversar de forma amigável com o usuário e trazer informações sobre as contagens, que estão no banco MongoDB.
+                              - Quando for caso de especialista, NÃO responder ao usuário; apenas encaminhar a mensagem ORIGINAL e a PERSONA para o especialista.
+                          
+                              ### REGRAS
+                              - Seja breve, educado e objetivo.
+                              - Se faltar um dado absolutamente essencial para decidir a rota, faça UMA pergunta mínima (CLARIFY). Caso contrário, deixe CLARIFY vazio.
+                              - Responda de forma textual.
+                          
+                          
+                              ### PROTOCOLO DE ENCAMINHAMENTO (texto puro)
+                              ROUTE=<especialista>
+                              PERGUNTA_ORIGINAL=<mensagem completa do usuário, sem edições>
+                              PERSONA=<copie o bloco "PERSONA SISTEMA" daqui>
+                              CLARIFY=<pergunta mínima se precisar; senão deixe vazio>
+                          
+                          
+                              ### SAÍDAS POSSÍVEIS
+                              - Resposta direta (texto curto) quando for saudação.
+                              - Encaminhamento ao especialista usando exatamente o protocolo acima.
+                          
+                          
+                              ### HISTÓRICO DA CONVERSA
+                              {chat_history}
+                              """
+                          )
 
 example_prompt_base = ChatPromptTemplate.from_messages([
     HumanMessagePromptTemplate.from_template("{human}"),
@@ -96,37 +94,17 @@ shots_roteador = [
     # 1) Saudação -> resposta direta
     {
         "human": "Oi, tudo bem?",
-        "ai": "Olá! Posso te ajudar com finanças ou agenda; por onde quer começar?"
+        "ai": "Olá! Posso te ajudar com quais consultas hoje?"
     },
-    # 2) Fora de escopo -> recusar e redirecionar
+    # 2) Pergunta sobre contagens -> encaminhar ao especialista
     {
-        "human": "Me conta uma piada.",
-        "ai": "Consigo ajudar apenas com finanças ou agenda. Prefere olhar seus gastos ou marcar um compromisso?"
+        "human": "Quais foram as condenas mais frequentes na semana passada?",
+        "ai": "ROUTE=especialista\nPERGUNTA_ORIGINAL=Quais foram as condenas mais frequentes na semana passada?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
     },
-    # 3) Finanças -> encaminhar (protocolo textual)
+    # 3) Quem é você? -> resposta direta
     {
-        "human": "Quanto gastei com mercado no mês passado?",
-        "ai": "ROUTE=financeiro\nPERGUNTA_ORIGINAL=Quanto gastei com mercado no mês passado?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
-    },
-    # 4) Ambíguo -> pedir 1 clarificação mínima (texto direto, sem encaminhar)
-    {
-        "human": "Agendar pagamento amanhã às 9h",
-        "ai": "Você quer lançar uma transação (finanças) ou criar um compromisso no calendário (agenda)?"
-    },
-    # 5) Agenda -> encaminhar (protocolo textual) — exemplo explícito
-    {
-        "human": "Tenho reunião amanhã às 9h?",
-        "ai": "ROUTE=agenda\nPERGUNTA_ORIGINAL=Tenho reunião amanhã às 9h?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
-    },
-    # 6) FAQ -> Resposta com base no documento FAQ
-    {
-        "human": "Qual o objetivo do Assessor.AI?",
-        "ai": "ROUTE=faq\nPERGUNTA_ORIGINAL=Qual o objetivo do Assessor.AI?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
-    },
-    # 7) FAQ -> Resposta com base no documento FAQ
-    {
-        "human": "Qual o telefone de contato?",
-        "ai": "ROUTE=faq\nPERGUNTA_ORIGINAL=Qual o telefone de contato?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY="
+        "human": "Quem é você?",
+        "ai": "Eu sou o Igestinha, seu assistente virtual para ajudar com as contagens da sua empresa. Como posso ajudar hoje?"
     }
 ]
 
@@ -135,76 +113,131 @@ fewshots_roteador = FewShotChatMessagePromptTemplate(
     example_prompt=example_prompt_base
 )
 
-# -------------------- PROMPTS ESPECIALISTAS --------------------
-# prompt do agente financeiro
-# system_prompt_financeiro = ("system",
-#                             """
-#                             ### OBJETIVO
-#                             Interpretar a PERGUNTA_ORIGINAL sobre finanças e operar as tools de `transactions` para responder.
-#                             A saída SEMPRE é JSON (contrato abaixo) para o Orquestrador.
-#
-#
-#                             ### TAREFAS
-#                             - Consultar gastos/entradas/dívidas (totais, por categoria, por estabelecimento, etc).
-#                             - Inserir/atualizar/deletar lançamentos financeiros.
-#                             - Resumir saúde financeira (entradas, gastos, dívidas, saldo, tendências).
-#
-#
-#
-#                             ### CONTEXTO
-#                             - Hoje é {today_local} (America/Sao_Paulo). Interprete datas relativas a partir desta data.
-#                             - Entrada vem do Roteador via protocolo:
-#                             - ROUTE=financeiro
-#                             - PERGUNTA_ORIGINAL=...
-#                             - PERSONA=...   (use como diretriz de concisão/objetividade)
-#                             - CLARIFY=...   (se preenchido, priorize responder esta dúvida antes de prosseguir)
-#
-#
-#                             ### REGRAS
-#                             - Use o {chat_history} para resolver referências ao contexto recente.
-#
-#
-#
-#                             ### SAÍDA (JSON)
-#                             Campos mínimos para enviar para o orquestrador:
-#                             # Obrigatórios:
-#                              - dominio   : "financeiro"
-#                              - intencao  : "consultar" | "inserir" | "atualizar" | "deletar" | "resumo"
-#                              - resposta  : uma frase objetiva
-#                              - recomendacao : ação prática (pode ser string vazia se não houver)
-#                             # Opcionais (incluir só se necessário):
-#                              - acompanhamento : texto curto de follow-up/próximo passo
-#                              - esclarecer     : pergunta mínima de clarificação (usar OU 'acompanhamento')
-#                              - escrita        : {{"operacao":"adicionar|atualizar|deletar","id":123}}
-#                              - janela_tempo   : {{"de":"YYYY-MM-DD","ate":"YYYY-MM-DD","rotulo":'mês passado'}}
-#                              - indicadores    : {{chaves livres e numéricas úteis ao log}}
-#
-#
-#                             ### HISTÓRICO DA CONVERSA
-#                             {chat_history}
-#                             """
-#                             )
-#
-# # Especialista financeiro (mesmo example_prompt_pair)
-# shots_financeiro = [
-#     {
-#         "human": "ROUTE=financeiro\nPERGUNTA_ORIGINAL=Quanto gastei com mercado no mês passado?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
-#         "ai": """{{"dominio":"financeiro","intencao":"consultar","resposta":"Você gastou R$ 842,75 com 'comida' no mês passado.","recomendacao":"Quer detalhar por estabelecimento?","janela_tempo":{{"de":"2025-08-01","ate":"2025-08-31","rotulo":"mês passado (ago/2025)"}}}}"""
-#     },
-#     {
-#         "human": "ROUTE=financeiro\nPERGUNTA_ORIGINAL=Registrar almoço hoje R$ 45 no débito\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
-#         "ai": """{{"dominio":"financeiro","intencao":"inserir","resposta":"Lancei R$ 45,00 em 'comida' hoje (débito).","recomendacao":"Deseja adicionar uma observação?","escrita":{{"operacao":"adicionar","id":2045}}}}"""
-#     },
-#     {
-#         "human": "ROUTE=financeiro\nPERGUNTA_ORIGINAL=Quero um resumo dos gastos\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
-#         "ai": """{{"dominio":"financeiro","intencao":"resumo","resposta":"Preciso do período para seguir.","recomendacao":"","esclarecer":"Qual período considerar (ex.: hoje, esta semana, mês passado)?"}}"""
-#     },
-# ]
+# -------------------
+# - PROMPTS ESPECIALISTAS --------------------
+system_prompt_especialista = ("system",
+                              """
+                              ### OBJETIVO
+                              Interpretar a PERGUNTA_ORIGINAL sobre consultas e operar as tools de 'queries' para responder.
+                              A saída SEMPRE é JSON (contrato abaixo).
+                          
+                          
+                              ### TAREFAS
+                              - Consultar as condenas, as quantidades, os tipos (total, por turno, por dia).
+                              - SOMENTE CONSULTAS, você não vai inserir nada no MongoDB.
+                              - Resumir a situação atual das contagens, onde que está o maior problema.
+                          
+                          
+                          
+                              ### CONTEXTO
+                              - Hoje é {today_local} (America/Sao_Paulo). Interprete datas relativas a partir desta data.
+                              - Entrada vem do Roteador via protocolo:
+                              - ROUTE=especialista
+                              - PERGUNTA_ORIGINAL=...
+                              - PERSONA=...   (use como diretriz de concisão/objetividade)
+                              - CLARIFY=...   (se preenchido, priorize responder esta dúvida antes de prosseguir)
+                          
+                          
+                              ### REGRAS
+                              - Use o {chat_history} para resolver referências ao contexto recente.
+                          
+                          
+                          
+                              ### SAÍDA (JSON)
+                              Campos mínimos para enviar para o roteador de volta:
+                              # Obrigatórios:
+                               - dominio   : "especialista"
+                               - intencao  : "consultar" | "resumo"
+                               - resposta  : uma frase objetiva e apontamentos
+                               - recomendacao : o que está pior no caso (pode ser string vazia se não houver)
+                              # Opcionais (incluir só se necessário):
+                               - acompanhamento : texto curto de follow-up/próximo passo
+                               - esclarecer     : pergunta mínima de clarificação (usar OU 'acompanhamento')
+                               - escrita        : {{"operacao":"adicionar|atualizar|deletar","id":123}}
+                               - janela_tempo   : {{"de":"YYYY-MM-DD","ate":"YYYY-MM-DD","rotulo":'mês passado'}}
+                               - indicadores    : {{chaves livres e numéricas úteis ao log}}
+                          
+                          
+                              ### HISTÓRICO DA CONVERSA
+                              {chat_history}
+                              """
+                              )
 
-# fewshots_financeiro = FewShotChatMessagePromptTemplate(
-#     examples=shots_financeiro,
-#     example_prompt=example_prompt_base,
-# )
+# Especialista financeiro (mesmo example_prompt_pair)
+shots_especialista = [
+    {
+        "human": "ROUTE=especialista\nPERGUNTA_ORIGINAL=Quais foram as condenas mais frequentes na semana passada\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
+        "ai": """{{"dominio":"especialista","intencao":"consultar","resposta":"Semana passada houve x condenas de Aero Saculite e Y de Sangria inadequada","recomendacao":"Tome mais cuidado com a Aero Saculite e Sangria inadequada"}}"""
+    },
+    {
+        "human": "ROUTE=especialista\nPERGUNTA_ORIGINAL=Quais foram as condenas contabilizadas hoje?\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
+        "ai": """{{"dominio":"especialista","intencao":"consultar","resposta":"Hoje contaram: Sangria inadequada, Y, Z. Com uma grande frequência em Z","recomendacao":"Focar na redução da frequência de Z, que apresentou maior incidência hoje."}}""",
+    },
+    {
+        "human": "ROUTE=especialista\nPERGUNTA_ORIGINAL=Quero um resumo da semana passada\nPERSONA={PERSONA_SISTEMA}\nCLARIFY=",
+        "ai": """{{"dominio":"especialista","intencao":"resumo","resposta":"Condenas mais contabilizadas: X, Y, Z, F. As que mais houveram casos: Z e X","recomendacao":""}}"""
+    },
+]
+
+fewshots_especialista = FewShotChatMessagePromptTemplate(
+    examples=shots_especialista,
+    example_prompt=example_prompt_base,
+)
+
+# Orquestrador
+system_prompt_orquestrador = ("system",
+                              """
+                            ### PAPEL
+                            Você é o Agente Orquestrador do IGestinha. Sua função é entregar a resposta final ao usuário **somente** quando o Especialista retornar o JSON.
+                        
+                        
+                            ### ENTRADA
+                            - ESPECIALISTA_JSON contendo chaves como:
+                            dominio, intencao, resposta, recomendacao (opcional, pode vir vazio), acompanhamento (opcional),
+                            esclarecer (opcional), janela_tempo (opcional), evento (opcional), escrita (opcional), indicadores (opcional).
+                        
+                        
+                            ### REGRAS
+                            - Use **exatamente** `resposta` do especialista como a **primeira linha** do output.
+                            - Não reescreva números/datas se já vierem prontos. Não invente dados. Seja conciso.
+                            - Não retorne JSON; **sempre** retorne no FORMATO DE SAÍDA.
+                        
+                        
+                            ### FORMATO DE SAÍDA (sempre ao usuário)
+                            <sua resposta será 1 frase objetiva sobre a situação>
+                            - Se houver `recomendacao`, adicione uma seção:
+                            - Recomendo <recomendacao>
+                        
+                        
+                            ### HISTÓRICO DA CONVERSA
+                            {chat_history}
+                            """
+                              )
+
+shots_orquestrador = [
+    # 1) Especialista — consultar
+    {
+        "human": """ESPECIALISTA_JSON:\n{{"dominio":"especialista","intencao":"consultar","resposta":"Semana passada houve x condenas de Aero Saculite e Y de Sangria inadequada","recomendacao":"Tome mais cuidado com a Aero Saculite e Sangria inadequada","janela_tempo":{{"de":"2025-08-01","ate":"2025-08-31","rotulo":"mês passado (ago/2025)"}}}}""",
+        "ai": "Semana passada houve x condenas de Aero Saculite e Y de Sangria inadequada\n- *Recomendação*:\nTome mais cuidado com a Aero Saculite e Sangria inadequada"
+    },
+
+    # 2) Especialista — consultar
+    {
+        "human": """ESPECIALISTA_JSON:\n{{"dominio":"especialista","intencao":"consultar","resposta":"Hoje contaram: Sangria inadequada, Y, Z. Com uma grande frequência em Z.","recomendacao":"Focar na redução da frequência de Z, que apresentou maior incidência hoje."}}""",
+        "ai": """Hoje contaram: Sangria inadequada, Y, Z. Com uma grande frequência em Z.\n- *Recomendação*: Focar na redução da frequência de Z, que apresentou maior incidência hoje."""
+    },
+
+    # 3) Especialista — Resumo
+    {
+        "human": """ESPECIALISTA_JSON:\n{{"dominio":"especialista","intencao":"resumo","resposta":"Condenas mais contabilizadas: X, Y, Z, F. As que mais houveram casos: Z e X.","recomendacao":""}}""",
+        "ai": """Condenas mais contabilizadas: X, Y, Z, F. As que mais houveram casos: Z e X.\n- *Recomendação*:\n"""
+    },
+]
+
+fewshots_orquestrador = FewShotChatMessagePromptTemplate(
+    examples=shots_orquestrador,
+    example_prompt=example_prompt_base
+)
 
 prompt_roteador = ChatPromptTemplate.from_messages([
     system_prompt_roteador,
@@ -213,31 +246,39 @@ prompt_roteador = ChatPromptTemplate.from_messages([
     ("human", "{input}"),
 ]).partial(today_local=today.isoformat())
 
-# prompt_financeiro = ChatPromptTemplate.from_messages([
-#     system_prompt_financeiro,
-#     fewshots_roteador,
-#     MessagesPlaceholder("chat_history"),
-#     ("human", "{input}"),
-#     MessagesPlaceholder("agent_scratchpad")
-# ]).partial(today_local=today.isoformat())
+prompt_especialista = ChatPromptTemplate.from_messages([
+    system_prompt_especialista,
+    fewshots_roteador,
+    MessagesPlaceholder("chat_history"),
+    ("human", "{input}"),
+    MessagesPlaceholder("agent_scratchpad")
+]).partial(today_local=today.isoformat())
 
-# financeiro_agent = create_tool_calling_agent(llm, TOOLS, prompt_financeiro)
-#
-# financeiro_executor_base = AgentExecutor(
-#     agent=financeiro_agent,
-#     tools=TOOLS,
-#     verbose=False,
-#     handle_parsing_errors=True,
-#     return_intermediate_steps=False
-# )
-#
-# financeiro_executor = RunnableWithMessageHistory(
-#     financeiro_executor_base,
-#     get_session_history=get_session_history,
-#     input_messages_key="input",
-#     history_messages_key="chat_history"
-# )
+prompt_orquestrador = ChatPromptTemplate.from_messages([
+    system_prompt_orquestrador,
+    fewshots_orquestrador,
+    MessagesPlaceholder("chat_history"),
+    ("human", "{input}"),
+]).partial(today_local=today.isoformat())
 
+MONGO_TOOLS = [query_registros]
+
+especialista_agent = create_tool_calling_agent(llm, MONGO_TOOLS, prompt_especialista)
+
+especialista_executor_base = AgentExecutor(
+    agent=especialista_agent,
+    tools=MONGO_TOOLS,
+    verbose=False,
+    handle_parsing_errors=True,
+    return_intermediate_steps=False
+)
+
+especialista_executor = RunnableWithMessageHistory(
+    especialista_executor_base,
+    get_session_history=get_session_history,
+    input_messages_key="input",
+    history_messages_key="chat_history"
+)
 
 roteador_chain = RunnableWithMessageHistory(
     prompt_roteador | llm_fast | StrOutputParser(),
@@ -246,16 +287,37 @@ roteador_chain = RunnableWithMessageHistory(
     history_messages_key="chat_history"
 )
 
+orquestrador_chain = RunnableWithMessageHistory(
+    prompt_orquestrador | llm_fast | StrOutputParser(),
+    get_session_history=get_session_history,
+    input_messages_key="input",
+    history_messages_key="chat_history"
+)
+
 while True:
     user_input = input(">>> ")
     if user_input.lower() in ["biribinha"]:
-        print("Tchau!")
+        print("Falouuu...!")
         break
     try:
         resposta_roteador = roteador_chain.invoke(
             {"input": user_input},
             config={"configurable": {"session_id": "DISNARA"}}
         )
-        print(resposta_roteador)
+        if 'ROUTE=' not in resposta_roteador:
+            print(resposta_roteador)
+        elif 'ROUTE=especialista' in resposta_roteador:
+            resposta_especialista = especialista_executor.invoke(
+                {"input": resposta_roteador},
+                config={"configurable": {"session_id": "DISNARA"}}
+            )
+            resposta_orquestrador = orquestrador_chain.invoke(
+                {"input": resposta_especialista},
+                config={"configurable": {"session_id": "DISNARA"}}
+            )
+
+            print(resposta_orquestrador)
+
+
     except Exception as e:
         print(f"Erro ao consumir a API: {e}")
