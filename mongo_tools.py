@@ -12,49 +12,14 @@ MONGO_URL = os.getenv("MONGO_URL")
 
 def get_conn():
     client = MongoClient(MONGO_URL)
-    return client['igesthinha']
+    db = client['igestaDB']
+    coll = db['registros']
+    return coll
 
 class Condena(BaseModel):
     nome: str
     tipo: str
     quantidade: int
-
-class AddRegistroArgs(BaseModel):
-    condenas: List[Condena] = Field(..., description="Lista de condenas do registro.")
-    data: Optional[str] = Field(default=None, description="Data do registro no formato ISO 8601. Se ausente, usa a data atual.")
-    empresa: str = Field(..., description="Nome da empresa.")
-    unidade: str = Field(..., description="Nome da unidade da empresa.")
-    gestor: str = Field(..., description="Nome do gestor responsável.")
-    turno: int = Field(..., description="Turno do registro.")
-    lote: str = Field(..., description="Lote do registro.")
-
-@tool("add_registro", args_schema=AddRegistroArgs)
-def add_registro(
-        condenas: List[Condena],
-        empresa: str,
-        unidade: str,
-        gestor: str,
-        turno: int,
-        lote: str,
-        data: Optional[str] = None,
-) -> dict:
-    """Insere um registro de condena no banco de dados MongoDB."""
-    db = get_conn()
-    try:
-        registro = {
-            "condenas": [c.dict() for c in condenas],
-            "data": datetime.fromisoformat(data) if data else datetime.utcnow(),
-            "empresa": empresa,
-            "unidade": unidade,
-            "gestor": gestor,
-            "turno": turno,
-            "lote": lote
-        }
-        result = db.registros.insert_one(registro)
-        return {"status": "ok", "id": str(result.inserted_id)}
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 class QueryRegistrosArgs(BaseModel):
     start_date: Optional[str] = Field(default=None, description="Data de início para a consulta (formato YYYY-MM-DD).")
@@ -72,7 +37,7 @@ def query_registros(
         limit: int = 10,
 ) -> dict:
     """Consulta registros de condena com filtros."""
-    db = get_conn()
+    coll = get_conn()
     try:
         query = {}
         if start_date:
@@ -87,7 +52,7 @@ def query_registros(
             query["unidade"] = unidade
 
         registros = []
-        for r in db.registros.find(query).limit(limit):
+        for r in coll.find(query).limit(limit):
             r['_id'] = str(r['_id'])
             registros.append(r)
         return {"status": "ok", "registros": registros}
