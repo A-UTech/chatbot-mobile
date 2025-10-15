@@ -20,6 +20,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from pymongo import MongoClient
+import pytz
 
 from mongo_tools import query_registros
 
@@ -27,8 +28,9 @@ load_dotenv()
 MONGO_URL = os.getenv("MONGO_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-today = datetime.now().date()
 
+tz_sp = pytz.timezone("America/Sao_Paulo")
+today = datetime.now(tz_sp)
 
 app = Flask(__name__)
 CORS(app)

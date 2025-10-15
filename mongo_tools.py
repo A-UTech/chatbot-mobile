@@ -16,11 +16,6 @@ def get_conn():
     coll = db['registros']
     return coll
 
-class Condena(BaseModel):
-    nome: str
-    tipo: str
-    quantidade: int
-
 class QueryRegistrosArgs(BaseModel):
     start_date: Optional[str] = Field(default=None, description="Data de início para a consulta (formato YYYY-MM-DD).")
     end_date: Optional[str] = Field(default=None, description="Data de fim para a consulta (formato YYYY-MM-DD).")

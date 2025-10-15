@@ -13,3 +13,5 @@ langchain-community
 pymongo==4.8.0
 pydantic==2.9.2
 typing-extensions==4.12.2
+
+pytz
