@@ -339,15 +339,13 @@ def chat(unidade):
 
 @app.route("/historico/<unidade>/<cargo>/<id_user>/<id_chat>", methods=["GET"])
 def historico(unidade, cargo, id_user, id_chat):
-    client = MongoClient(MONGO_URL)
-    db = client["igestaDB"]
-    coll = db["chatbot"]
-
     try:
-        id_user = int(id_user)
-        id_chat = int(id_chat)
-    except ValueError:
-        return jsonify({"error": "id_user e id_chat devem ser números"}), 400
+        client = MongoClient(MONGO_URL)
+        db = client["igestaDB"]
+        coll = db["chatbot"]
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "Erro ao conectar ao banco de dados."}), 500
 
     try:
         cursor = coll.find({
