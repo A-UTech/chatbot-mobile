@@ -24,7 +24,6 @@ class Condena(BaseModel):
 class QueryRegistrosArgs(BaseModel):
     start_date: Optional[str] = Field(default=None, description="Data de início para a consulta (formato YYYY-MM-DD).")
     end_date: Optional[str] = Field(default=None, description="Data de fim para a consulta (formato YYYY-MM-DD).")
-    empresa: Optional[str] = Field(default=None, description="Nome da empresa para filtrar.")
     unidade: Optional[str] = Field(default=None, description="Nome da unidade para filtrar.")
     limit: int = Field(default=10, description="Número máximo de registros a retornar.")
 
@@ -32,7 +31,6 @@ class QueryRegistrosArgs(BaseModel):
 def query_registros(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        empresa: Optional[str] = None,
         unidade: Optional[str] = None,
         limit: int = 10,
 ) -> dict:
@@ -46,8 +44,6 @@ def query_registros(
             if "data" not in query:
                 query["data"] = {}
             query["data"]["$lte"] = datetime.fromisoformat(end_date)
-        if empresa:
-            query["empresa"] = empresa
         if unidade:
             query["unidade"] = unidade
 

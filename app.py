@@ -4,7 +4,6 @@ from zoneinfo import ZoneInfo
 import random
 from dotenv import load_dotenv
 from langchain_core.output_parsers import StrOutputParser
-
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import (
@@ -16,11 +15,18 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.memory import ChatMessageHistory
 from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
 from mongo_tools import query_registros
 
 load_dotenv()
-TZ = ZoneInfo("America/Sao_Paulo")
-today = datetime.now(TZ).date()
+today = datetime.now().date()
+
+
+app = Flask(__name__)
+CORS(app)
+
 
 store = {}
 
@@ -294,30 +300,41 @@ orquestrador_chain = RunnableWithMessageHistory(
     history_messages_key="chat_history"
 )
 
-while True:
-    user_input = input(">>> ")
-    if user_input.lower() in ["biribinha"]:
-        print("Falouuu...!")
-        break
+@app.route("/<unidade>", methods=["POST"])
+def chat(unidade):
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Dados não fornecidos ou formato inválido!"}), 400
+
+    user_message = data.get("usuario", "")
+
+    if not user_message:
+        return jsonify({"error": "A mensagem do usuário está vazia!"}), 400
+
     try:
         resposta_roteador = roteador_chain.invoke(
-            {"input": user_input},
+            {"input": user_message},
             config={"configurable": {"session_id": "DISNARA"}}
         )
         if 'ROUTE=' not in resposta_roteador:
-            print(resposta_roteador)
+            return jsonify({"resposta": resposta_roteador})
         elif 'ROUTE=especialista' in resposta_roteador:
             resposta_especialista = especialista_executor.invoke(
-                {"input": resposta_roteador},
+                {"input": resposta_roteador,
+                        "unidade": unidade},
                 config={"configurable": {"session_id": "DISNARA"}}
             )
             resposta_orquestrador = orquestrador_chain.invoke(
                 {"input": resposta_especialista},
                 config={"configurable": {"session_id": "DISNARA"}}
             )
-
-            print(resposta_orquestrador)
-
+            return jsonify({"resposta": resposta_orquestrador})
 
     except Exception as e:
         print(f"Erro ao consumir a API: {e}")
+        return jsonify({"error": "Erro ao processar a solicitação."}), 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
