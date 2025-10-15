@@ -357,7 +357,12 @@ def historico(unidade, cargo, id_user, id_chat):
             "id_chat": id_chat
         })
 
+        print(cursor)
+        print("-----")
+
         data = list(cursor)
+
+        print(data)
 
         if not data:
             return jsonify({"error": "Dados não encontrados!"}), 404
