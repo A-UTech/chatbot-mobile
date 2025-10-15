@@ -349,10 +349,7 @@ def historico(unidade, cargo, id_user, id_chat):
 
     try:
         cursor = coll.find({
-            "unidade": unidade,
-            "cargo": cargo,
-            "id_user": id_user,
-            "id_chat": id_chat
+            "unidade": unidade
         })
 
         print(cursor)
