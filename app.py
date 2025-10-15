@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import traceback
 from zoneinfo import ZoneInfo
 import random
 from dotenv import load_dotenv
@@ -18,9 +19,14 @@ from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+from pymongo import MongoClient
+
 from mongo_tools import query_registros
 
 load_dotenv()
+MONGO_URL = os.getenv("MONGO_URL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 today = datetime.now().date()
 
 
@@ -36,13 +42,6 @@ def get_session_history(session_id) -> ChatMessageHistory:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
 
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0.7,
-    top_p=0.95,
-    google_api_key=os.getenv("GEMINI_API_KEY")
-)
 
 llm_fast = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
@@ -269,7 +268,7 @@ prompt_orquestrador = ChatPromptTemplate.from_messages([
 
 MONGO_TOOLS = [query_registros]
 
-especialista_agent = create_tool_calling_agent(llm, MONGO_TOOLS, prompt_especialista)
+especialista_agent = create_tool_calling_agent(llm_fast, MONGO_TOOLS, prompt_especialista)
 
 especialista_executor_base = AgentExecutor(
     agent=especialista_agent,
@@ -300,7 +299,7 @@ orquestrador_chain = RunnableWithMessageHistory(
     history_messages_key="chat_history"
 )
 
-@app.route("/<unidade>", methods=["POST"])
+@app.route("/<unidade>/chat", methods=["POST"])
 def chat(unidade):
     data = request.get_json()
 
@@ -334,6 +333,41 @@ def chat(unidade):
     except Exception as e:
         print(f"Erro ao consumir a API: {e}")
         return jsonify({"error": "Erro ao processar a solicitação."}), 500
+
+
+@app.route("/historico/<unidade>/<cargo>/<id_user>/<id_chat>", methods=["GET"])
+def historico(unidade, cargo, id_user, id_chat):
+    client = MongoClient(MONGO_URL)
+    db = client["igestaDB"]
+    coll = db["chatbot"]
+
+    try:
+        id_user = int(id_user)
+        id_chat = int(id_chat)
+    except ValueError:
+        return jsonify({"error": "id_user e id_chat devem ser números"}), 400
+
+    try:
+        cursor = coll.find({
+            "unidade": unidade,
+            "cargo": cargo,
+            "id_user": id_user,
+            "id_chat": id_chat
+        })
+
+        data = list(cursor)
+
+        if not data:
+            return jsonify({"error": "Dados não encontrados!"}), 404
+
+        for d in data:
+            d["_id"] = str(d["_id"])
+
+        return jsonify({"historico": data}), 200
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
