@@ -316,60 +316,25 @@ def chat(unidade):
     try:
         resposta_roteador = roteador_chain.invoke(
             {"input": user_message},
-            config={"configurable": {"session_id": "DISNARA"}}
+            config={"configurable": {"session_id": ""}}
         )
-        if 'ROUTE=' not in resposta_roteador:
+        if 'ROUTE=especialista' not in resposta_roteador:
             return jsonify({"resposta": resposta_roteador})
-        elif 'ROUTE=especialista' in resposta_roteador:
+        else:
             resposta_especialista = especialista_executor.invoke(
                 {"input": resposta_roteador,
                         "unidade": unidade},
-                config={"configurable": {"session_id": "DISNARA"}}
+                config={"configurable": {"session_id": ""}}
             )
             resposta_orquestrador = orquestrador_chain.invoke(
                 {"input": resposta_especialista},
-                config={"configurable": {"session_id": "DISNARA"}}
+                config={"configurable": {"session_id": ""}}
             )
             return jsonify({"resposta": resposta_orquestrador})
 
     except Exception as e:
         print(f"Erro ao consumir a API: {e}")
         return jsonify({"error": "Erro ao processar a solicitação."}), 500
-
-
-@app.route("/historico/<unidade>/<cargo>/<id_user>/<id_chat>", methods=["GET"])
-def historico(unidade, cargo, id_user, id_chat):
-    try:
-        client = MongoClient(MONGO_URL)
-        db = client["igestaDB"]
-        coll = db["chatbot"]
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": "Erro ao conectar ao banco de dados."}), 500
-
-    try:
-        cursor = coll.find({
-            "unidade": unidade
-        })
-
-        print(cursor)
-        print("-----")
-
-        data = list(cursor)
-
-        print(data)
-
-        if not data:
-            return jsonify({"error": "Dados não encontrados!"}), 404
-
-        for d in data:
-            d["_id"] = str(d["_id"])
-
-        return jsonify({"historico": data}), 200
-
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
