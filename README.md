@@ -23,8 +23,7 @@ Content-Type: application/json
 
 {
     "usuario": "<mensagem>",
-    "unidade": "<nome-unidade-da-empresa>",
-    "gestor": "<nome-gestor>"
+    "unidade": "<nome-unidade-da-empresa>"
 }
 ```
 
