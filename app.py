@@ -91,7 +91,6 @@ system_prompt_roteador = ("system",
                       
                           ### CONTEXTO
                           - Unidade atual: {unidade}
-                          - Gestor atual: {gestor}
                           """
                           )
 
@@ -147,9 +146,8 @@ system_prompt_especialista = ("system",
                               - PERSONA=...   (use como diretriz de concisão/objetividade)
                               - CLARIFY=...   (se preenchido, priorize responder esta dúvida antes de prosseguir)
                               - Unidade atual: {unidade}
-                                - Gestor atual: {gestor}
                               - Todas as queries ao MongoDB devem usar esses dois campos como filtros obrigatórios.
-                              - Ao invocar ferramentas de consulta, SEMPRE utilize os valores de 'unidade' e 'gestor' fornecidos no contexto para filtrar os dados.
+                              - Ao invocar ferramentas de consulta, SEMPRE utilize os valores de 'unidade' e fornecidos no contexto para filtrar os dados.
 
                               ### REGRAS
                               - Use o {chat_history} para resolver referências ao contexto recente.
@@ -262,7 +260,7 @@ prompt_roteador = ChatPromptTemplate.from_messages([
     fewshots_roteador,
     MessagesPlaceholder("chat_history"),
     ("human", "{input}"),
-]).partial(today=today.isoformat(), unidade="{unidade}", gestor="{gestor}")
+]).partial(today=today.isoformat(), unidade="{unidade}")
 
 prompt_especialista = ChatPromptTemplate.from_messages([
     system_prompt_especialista,
@@ -270,7 +268,7 @@ prompt_especialista = ChatPromptTemplate.from_messages([
     MessagesPlaceholder("chat_history"),
     ("human", "{input}"),
     MessagesPlaceholder("agent_scratchpad")
-]).partial(today=today.isoformat(), unidade="{unidade}", gestor="{gestor}")
+]).partial(today=today.isoformat(), unidade="{unidade}")
 
 prompt_orquestrador = ChatPromptTemplate.from_messages([
     system_prompt_orquestrador,
@@ -320,7 +318,6 @@ def chat():
         return jsonify({"error": "Dados não fornecidos ou formato inválido!"}), 400
 
     user_message = data.get("usuario", "")
-    gestor = data.get("gestor", "")
     unidade = data.get("unidade", "")
 
     if not user_message:
@@ -328,7 +325,7 @@ def chat():
 
     try:
         resposta_roteador = roteador_chain.invoke(
-            {"input": user_message, "unidade": unidade, "gestor": gestor},
+            {"input": user_message, "unidade": unidade},
             config={"configurable": {"session_id": ""}}
         )
 
@@ -336,8 +333,7 @@ def chat():
             resposta_especialista = especialista_executor.invoke(
                 {
                     "input": f"{resposta_roteador}",
-                    "unidade": unidade,
-                    "gestor": gestor
+                    "unidade": unidade
                 },
                 config={"configurable": {"session_id": ""}}
             )
