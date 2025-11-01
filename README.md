@@ -39,9 +39,10 @@ Content-Type: application/json
 - `pymongo`
 - `pydantic`
 - `typing-extensions`
+- `langchain-openai`
 - `pytz`
 
 
-Desenvolvido por: [**Rafael Cruz**](https://github.com/RafaelBarretoCruz)
+Desenvolvido por: [**Rafael Cruz**](https://github.com/RafaelBarretoCruz) e [**Gabriel Martins**](https://github.com/GabrielMartins2025)
 
 
