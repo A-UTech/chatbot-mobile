@@ -15,6 +15,8 @@ from langchain_core.prompts import (
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain.memory import ChatMessageHistory
 from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
+from langchain_openai import ChatOpenAI  # ← NOVA IMPORT
+
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -42,9 +44,16 @@ def get_session_history(session_id) -> ChatMessageHistory:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
 
+# Configuração DeepSeek com ChatOpenAI
+llm_deepseek = ChatOpenAI(
+    model="deepseek-chat",
+    temperature=0.7,
+    openai_api_key=os.getenv("DEEPSEEK_API_KEY"),
+    base_url="https://api.deepseek.com/v1"
+)
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+llm_gemini = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash",
     temperature=0,
     google_api_key=os.getenv("GEMINI_API_KEY")
 )
@@ -278,7 +287,7 @@ prompt_orquestrador = ChatPromptTemplate.from_messages([
 ]).partial(today=today.isoformat())
 
 
-especialista_agent = create_tool_calling_agent(llm, TOOLS, prompt_especialista)
+especialista_agent = create_tool_calling_agent(llm_deepseek, TOOLS, prompt_especialista)
 
 especialista_executor_base = AgentExecutor(
     agent=especialista_agent,
@@ -296,14 +305,14 @@ especialista_executor = RunnableWithMessageHistory(
 )
 
 roteador_chain = RunnableWithMessageHistory(
-    prompt_roteador | llm | StrOutputParser(),
+    prompt_roteador | llm_gemini | StrOutputParser(),
     get_session_history=get_session_history,
     input_messages_key="input",
     history_messages_key="chat_history"
 )
 
 orquestrador_chain = RunnableWithMessageHistory(
-    prompt_orquestrador | llm | StrOutputParser(),
+    prompt_orquestrador | llm_gemini | StrOutputParser(),
     get_session_history=get_session_history,
     input_messages_key="input",
     history_messages_key="chat_history"
